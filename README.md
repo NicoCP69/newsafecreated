@@ -31,6 +31,8 @@ Cette application permet de récupérer des données depuis l'API BCReader Testn
 
 ## Déploiement sur Amazon EC2
 
+### Méthode 1 : Déploiement via GitHub
+
 1. Connectez-vous à votre instance EC2 via SSH :
    ```
    ssh ec2-user@ec2-35-180-247-109.eu-west-3.compute.amazonaws.com
@@ -48,8 +50,9 @@ Cette application permet de récupérer des données depuis l'API BCReader Testn
 
 3. Clonez le dépôt Git :
    ```
-   git clone https://github.com/NicoCP69/newsafecreated.git
-   cd newsafecreated
+   mkdir -p ~/newsafebot
+   cd ~/newsafebot
+   git clone https://github.com/NicoCP69/newsafecreated.git .
    ```
 
 4. Créez et configurez le fichier `.env` :
@@ -60,13 +63,41 @@ Cette application permet de récupérer des données depuis l'API BCReader Testn
 
 5. Démarrez l'application avec Docker Compose :
    ```
-   docker-compose up -d
+   docker-compose up -d --build
    ```
 
 6. Vérifiez que l'application fonctionne :
    ```
    docker-compose logs -f
    ```
+
+### Méthode 2 : Déploiement direct depuis votre machine locale
+
+1. Créez une archive des fichiers source :
+   ```
+   cd /chemin/vers/newsafebot
+   tar -czf newsafebot_src.tar.gz --exclude="venv" --exclude="__pycache__" --exclude="*.tar" --exclude="*.tar.gz" .
+   ```
+
+2. Transférez les fichiers vers l'EC2 :
+   ```
+   ssh ec2-user@ec2-35-180-247-109.eu-west-3.compute.amazonaws.com "mkdir -p ~/newsafebot"
+   scp newsafebot_src.tar.gz ec2-user@ec2-35-180-247-109.eu-west-3.compute.amazonaws.com:~/newsafebot/
+   ```
+
+3. Connectez-vous à l'EC2 et déployez l'application :
+   ```
+   ssh ec2-user@ec2-35-180-247-109.eu-west-3.compute.amazonaws.com
+   cd ~/newsafebot
+   tar -xzf newsafebot_src.tar.gz
+   docker-compose up -d --build
+   ```
+
+### Statut actuel
+
+L'application est actuellement déployée sur EC2 et accessible à l'adresse :
+
+http://ec2-35-180-247-109.eu-west-3.compute.amazonaws.com:8000
 
 ## Utilisation
 
