@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  newsafebot:
+    build: .
+    container_name: newsafebot
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./.env:/app/.env
+    environment:
+      - TZ=Europe/Paris

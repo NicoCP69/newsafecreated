@@ -153,12 +153,12 @@ def format_data(data, min_id=170):
         if not filtered_data:
             return "ℹ️ Aucune nouvelle adresse depuis le dernier ID"
             
-        message = "📊 *New Safe Deployed* 📊\n\n"
+        message = "📊 New Safe Deployed 📊\n\n"
         
         for item in filtered_data:
-            message += f"🔹 *ID:* {item['id']}\n"
-            message += f"📍 *Adresse:* `{item['address']}`\n"
-            message += f"🏢 *Émetteur:* {item['issuer']}\n\n"
+            message += f"🔹 ID: {item['id']}\n"
+            message += f"📍 Address: {item['address']}\n"
+            message += f"🏢 Issuer: {item['issuer']}\n\n"
         
         logger.info(f"Formatage de {len(filtered_data)} nouvelles adresses avec ID > {min_id}")
         return message
