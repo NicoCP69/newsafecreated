@@ -54,6 +54,21 @@ async def fetch_api_data():
         logger.error(f"Erreur lors de la requête API: {e}")
         return {"error": str(e)}
 
+async def fetch_transactions_data(page=1, limit=20):
+    """Récupère les données de transactions depuis l'API BCReader"""
+    headers = {
+        "accept": "application/json",
+        "x-api-key": API_KEY
+    }
+    
+    try:
+        response = requests.get(f"{API_URL}/api/all-transactions?page={page}&limit={limit}", headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Erreur lors de la requête API pour les transactions: {e}")
+        return {"error": str(e)}
+
 def extract_data_for_csv(data):
     """Extrait les données pertinentes pour le CSV (id, address, issuer)"""
     csv_data = []
@@ -166,6 +181,61 @@ def format_data(data, min_id=170):
         logger.error(f"Erreur lors du formatage du message Telegram: {e}")
         return f"❗ Erreur de formatage: {str(e)}"
 
+def format_transactions(transactions_data, last_tx_hash=None):
+    """Met en forme les données de transactions pour l'affichage dans Telegram"""
+    try:
+        if not transactions_data or "data" not in transactions_data or not transactions_data["data"]:
+            return "❗ Aucune transaction disponible"
+        
+        # Récupérer les transactions
+        transactions = transactions_data["data"]
+        
+        # Filtrer les transactions si un hash de dernière transaction est fourni
+        # Note: Comme l'API ne fournit pas de hash de transaction, nous utilisons une combinaison de from+to+value comme identifiant unique
+        if last_tx_hash:
+            # Trouver l'index de la dernière transaction traitée
+            try:
+                found = False
+                filtered_transactions = []
+                
+                for tx in transactions:
+                    tx_hash = f"{tx['from']}_{tx['to']}_{tx['valueFormatted']}"
+                    
+                    # Si on trouve la transaction déjà traitée, on marque qu'on l'a trouvée
+                    # et on ne l'ajoute pas à la liste filtrée
+                    if tx_hash == last_tx_hash:
+                        found = True
+                        logger.info(f"Transaction déjà traitée trouvée: {tx_hash}")
+                        break
+                    
+                    # On ajoute uniquement les transactions qui n'ont pas encore été traitées
+                    filtered_transactions.append(tx)
+                
+                # Remplacer la liste originale par la liste filtrée
+                transactions = filtered_transactions
+            except Exception as e:
+                logger.error(f"Erreur lors du filtrage des transactions: {e}")
+        
+        if not transactions:
+            return "ℹ️ Aucune nouvelle transaction depuis la dernière vérification"
+            
+        message = "💰 Nouvelles Transactions 💰\n\n"
+        
+        for tx in transactions:
+            # Vérifier si l'adresse d'origine est l'adresse spéciale
+            if tx['from'] == "0x74a9b04c7bab3d3BAd1A0a06589A24A67a6f9127":
+                message += f"🎁 *GIFT NEW WALLET* 🎁 💸\n"
+            else:
+                message += f"🔹 De: {tx['from']}\n"
+            message += f"📍 À: {tx['to']}\n"
+            message += f"💶 Montant: {tx['valueFormatted']} {tx['tokenSymbol']}\n\n"
+        
+        logger.info(f"Formatage de {len(transactions)} nouvelles transactions")
+        return message
+    except Exception as e:
+        logger.error(f"Erreur lors du formatage des transactions pour Telegram: {e}")
+        return f"❗ Erreur de formatage des transactions: {str(e)}"
+
 async def send_telegram_message(message):
     """Envoie un message via l'API Telegram"""
     if not TELEGRAM_BOT_TOKEN:
@@ -220,6 +290,10 @@ async def process_and_send_data(min_id=None):
         else:
             logger.info(f"Utilisation de l'ID spécifié: {min_id}")
         
+        # Vérification si c'est le premier démarrage après une mise à jour du code
+        # On continue le traitement même au premier démarrage pour vérifier les nouvelles adresses
+        logger.info("Vérification des nouvelles adresses, même au premier démarrage")
+            
         # Récupération des données
         data = await fetch_api_data()
         if not data:
@@ -278,6 +352,63 @@ async def process_and_send_data(min_id=None):
             delete_csv_file(csv_file)
         return False
 
+# Variable globale pour stocker le hash de la dernière transaction traitée
+last_transaction_hash = None
+
+# Verrou pour éviter les problèmes de concurrence avec les transactions
+tx_lock = threading.Lock()
+
+async def process_and_send_transactions():
+    """Récupère les transactions, les formate et les envoie via Telegram"""
+    global last_transaction_hash
+    
+    try:
+        # Récupération des données de transactions
+        with tx_lock:
+            current_last_tx_hash = last_transaction_hash
+            
+        logger.info(f"Vérification des nouvelles transactions depuis le hash: {current_last_tx_hash}")
+        
+        # Même au premier démarrage, on vérifie les nouvelles transactions
+        logger.info("Vérification des nouvelles transactions, même au premier démarrage")
+        
+        # Récupération des données
+        transactions_data = await fetch_transactions_data(page=1, limit=20)
+        if not transactions_data or "error" in transactions_data:
+            logger.error("Aucune donnée de transaction reçue de l'API")
+            return False
+        
+        # Formatage du message avec filtrage par hash de transaction
+        message = format_transactions(transactions_data, current_last_tx_hash)
+        
+        # Envoi du message via Telegram seulement s'il y a de nouvelles transactions
+        if "Aucune nouvelle transaction" not in message:
+            # Envoyer le message
+            success = await send_telegram_message(message)
+            
+            # Mettre à jour le dernier hash de transaction traité seulement si l'envoi a réussi
+            if success and transactions_data["data"]:
+                # Prendre le hash de la première transaction (la plus récente) comme nouveau dernier hash
+                # Les transactions sont généralement triées par ordre chronologique inverse (la plus récente en premier)
+                first_tx = transactions_data["data"][0]
+                new_tx_hash = f"{first_tx['from']}_{first_tx['to']}_{first_tx['valueFormatted']}"
+                
+                with tx_lock:
+                    last_transaction_hash = new_tx_hash
+                logger.info(f"Dernier hash de transaction mis à jour: {last_transaction_hash}")
+                logger.info(f"Mémorisé pour éviter les doublons: {len(transactions_data['data'])} transactions traitées")
+                
+                return success
+            else:
+                logger.info("Aucune nouvelle transaction après filtrage ou échec d'envoi")
+                return False
+        else:
+            logger.info("Aucune nouvelle transaction à envoyer")
+            return True
+    except Exception as e:
+        logger.error(f"Erreur lors du traitement et de l'envoi des transactions: {e}")
+        return False
+
 @app.get("/")
 async def root():
     return {"message": "BCReader Telegram Bot API"}
@@ -294,6 +425,19 @@ async def send_update(background_tasks: BackgroundTasks, min_id: int = None):
         return {"message": f"Mise à jour en cours d'envoi (adresses avec ID > {current_id})"}    
     else:
         return {"message": f"Mise à jour en cours d'envoi (adresses avec ID > {min_id})"}
+
+@app.get("/send-transactions-update")
+async def send_transactions_update(background_tasks: BackgroundTasks):
+    """Déclenche l'envoi d'une mise à jour des transactions via Telegram"""
+    background_tasks.add_task(process_and_send_transactions)
+    
+    with tx_lock:
+        current_hash = last_transaction_hash
+    
+    if current_hash:
+        return {"message": f"Mise à jour des transactions en cours d'envoi (depuis le hash {current_hash[:15]}...)"}    
+    else:
+        return {"message": "Première mise à jour des transactions en cours d'envoi"}
 
 @app.get("/get-csv")
 async def get_csv():
@@ -330,14 +474,19 @@ async def get_csv():
         return Response(content=f"Erreur: {str(e)}", media_type="text/plain", status_code=500)
 
 def periodic_check():
-    """Fonction exécutée périodiquement pour vérifier les nouvelles adresses"""
+    """Fonction exécutée périodiquement pour vérifier les nouvelles adresses et transactions"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
     while True:
         try:
+            # Vérification des nouvelles adresses
             logger.info("Vérification périodique des nouvelles adresses...")
             loop.run_until_complete(process_and_send_data())
+            
+            # Vérification des nouvelles transactions
+            logger.info("Vérification périodique des nouvelles transactions...")
+            loop.run_until_complete(process_and_send_transactions())
         except Exception as e:
             logger.error(f"Erreur lors de la vérification périodique: {e}")
         
@@ -349,15 +498,20 @@ async def startup_event():
     """Exécuté au démarrage de l'application"""
     logger.info("Application démarrée")
     
-    # Initialiser le dernier ID traité à 173 (pour éviter de renvoyer les entrées déjà annoncées)
-    global last_processed_id
-    last_processed_id = 173  # Mise à jour pour éviter de renvoyer les entrées déjà annoncées
+    # Initialiser le dernier ID traité à une valeur qui permettra de détecter les nouvelles adresses
+    global last_processed_id, last_transaction_hash
+    last_processed_id = 0  # Valeur basse pour détecter les nouvelles adresses
     logger.info(f"Dernier ID traité initialisé à: {last_processed_id}")
+    
+    # Initialiser le hash de la dernière transaction à None pour détecter les nouvelles transactions
+    last_transaction_hash = None
+    logger.info("Hash de la dernière transaction initialisé à None pour détecter les nouvelles transactions")
     
     # Démarrer la vérification périodique dans un thread séparé
     thread = threading.Thread(target=periodic_check, daemon=True)
     thread.start()
     logger.info("Vérification périodique démarrée (toutes les 60 secondes)")
+    logger.info("Surveillance des nouvelles adresses ET transactions activée")
 
 
 if __name__ == "__main__":
