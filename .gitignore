@@ -1,0 +1,22 @@
+# Environnement virtuel
+venv/
+env/
+ENV/
+
+# Fichiers Python compilés
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Fichiers de configuration locaux
+.env
+
+# Fichiers CSV générés
+bcreader_data_*.csv
+
+# Logs
+*.log
+
+# Fichiers système
+.DS_Store
+Thumbs.db
