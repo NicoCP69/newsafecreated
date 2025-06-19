@@ -49,7 +49,9 @@ async def fetch_api_data():
     try:
         response = requests.get(f"{API_URL}/api/config/addresses", headers=headers)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        logger.info(f"Données récupérées avec succès depuis l'API, type: {type(data)}")
+        return data
     except requests.exceptions.RequestException as e:
         logger.error(f"Erreur lors de la requête API: {e}")
         return {"error": str(e)}
@@ -84,8 +86,17 @@ def extract_data_for_csv(data):
                 })
     # Si les données sont un dictionnaire
     elif isinstance(data, dict) and not "error" in data:
+        # Vérifier si les adresses sont directement dans une clé 'addresses'
+        if "addresses" in data and isinstance(data["addresses"], dict):
+            for address_id, address_info in data["addresses"].items():
+                if isinstance(address_info, dict) and "address" in address_info:
+                    csv_data.append({
+                        "id": address_id,
+                        "address": address_info["address"],
+                        "issuer": address_info.get("issuer", "")
+                    })
         # Si les données sont dans une propriété 'items' ou similaire
-        if "items" in data and isinstance(data["items"], list):
+        elif "items" in data and isinstance(data["items"], list):
             for item in data["items"]:
                 if all(k in item for k in ["id", "address"]):
                     csv_data.append({
@@ -150,7 +161,7 @@ def delete_csv_file(filepath):
     except Exception as e:
         logger.error(f"Erreur lors de la suppression du fichier: {e}")
 
-def format_data(data, min_id=170):
+def format_data(data, min_id=170, max_addresses=10):
     """Met en forme les données pour l'affichage dans Telegram"""
     try:
         if not data:
@@ -167,6 +178,11 @@ def format_data(data, min_id=170):
         
         if not filtered_data:
             return "ℹ️ Aucune nouvelle adresse depuis le dernier ID"
+        
+        # Limiter le nombre d'adresses pour éviter les messages trop longs
+        if len(filtered_data) > max_addresses:
+            logger.info(f"Limitation à {max_addresses} adresses sur {len(filtered_data)} détectées")
+            filtered_data = filtered_data[:max_addresses]
             
         message = "📊 New Safe Deployed 📊\n\n"
         
@@ -300,11 +316,30 @@ async def process_and_send_data(min_id=None):
             logger.error("Aucune donnée reçue de l'API")
             return False
         
+        # Log pour déboguer la structure des données reçues
+        logger.info(f"Structure des données reçues: {type(data)}")
+        if isinstance(data, dict):
+            logger.info(f"Clés dans les données: {list(data.keys())}")
+            if "addresses" in data:
+                logger.info(f"Type de 'addresses': {type(data['addresses'])}")
+                if isinstance(data['addresses'], dict):
+                    logger.info(f"Nombre d'adresses: {len(data['addresses'])}")
+                    # Afficher quelques exemples d'adresses
+                    sample_keys = list(data['addresses'].keys())[:2]
+                    for key in sample_keys:
+                        logger.info(f"Exemple d'adresse - Clé: {key}, Valeur: {data['addresses'][key]}")
+        
         # Extraction des données pour CSV
         csv_data = extract_data_for_csv(data)
+        logger.info(f"Nombre d'adresses extraites pour CSV: {len(csv_data) if csv_data else 0}")
+        
         if not csv_data:
             logger.error("Aucune donnée extraite pour le CSV")
             return False
+        
+        # Afficher quelques exemples d'adresses extraites
+        for i, item in enumerate(csv_data[:2]):
+            logger.info(f"Exemple d'adresse extraite {i+1}: {item}")
         
         # Sauvegarde des données dans un fichier CSV temporaire
         csv_file = save_to_csv(csv_data, keep_file=False)
@@ -316,12 +351,19 @@ async def process_and_send_data(min_id=None):
         if "Aucune nouvelle adresse" not in message:
             # Trouver le plus grand ID dans les données filtrées
             filtered_data = [item for item in csv_data if int(item['id']) > int(min_id)]
+            logger.info(f"Nombre d'adresses après filtrage (ID > {min_id}): {len(filtered_data)}")
+            
             if filtered_data:
+                # Afficher quelques exemples d'adresses filtrées
+                for i, item in enumerate(filtered_data[:2]):
+                    logger.info(f"Exemple d'adresse filtrée {i+1}: {item}")
+                
                 max_id = max([int(item['id']) for item in filtered_data])
                 logger.info(f"Nouvel ID maximum détecté: {max_id}")
                 
                 # Envoyer le message
                 success = await send_telegram_message(message)
+                logger.info(f"Résultat de l'envoi du message: {'Succès' if success else 'Échec'}")
                 
                 # Mettre à jour le dernier ID traité seulement si l'envoi a réussi
                 if success:
@@ -487,6 +529,7 @@ def periodic_check():
             # Vérification des nouvelles transactions
             logger.info("Vérification périodique des nouvelles transactions...")
             loop.run_until_complete(process_and_send_transactions())
+            
         except Exception as e:
             logger.error(f"Erreur lors de la vérification périodique: {e}")
         
