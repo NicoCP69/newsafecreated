@@ -29,23 +29,21 @@ Cette application permet de récupérer des données depuis l'API BCReader Testn
    docker-compose up -d
    ```
 
-## Déploiement sur Amazon EC2
+## Déploiement sur VPS OVH
 
 ### Méthode 1 : Déploiement via GitHub
 
-1. Connectez-vous à votre instance EC2 via SSH :
+1. Connectez-vous à votre instance VPS via SSH :
    ```
-   ssh ec2-user@ec2-35-180-247-109.eu-west-3.compute.amazonaws.com
+   ssh debian@vps-7461372a.vps.ovh.net
    ```
 
 2. Installez Docker et Docker Compose si ce n'est pas déjà fait :
    ```
-   sudo yum update -y
-   sudo yum install -y docker
-   sudo service docker start
-   sudo usermod -a -G docker ec2-user
-   sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-   sudo chmod +x /usr/local/bin/docker-compose
+   sudo apt-get update
+   sudo apt-get install -y docker.io docker-compose
+   sudo usermod -aG docker debian
+   # Déconnectez-vous et reconnectez-vous pour que les changements de groupe prennent effet
    ```
 
 3. Clonez le dépôt Git :
@@ -59,7 +57,15 @@ Cette application permet de récupérer des données depuis l'API BCReader Testn
    ```
    nano .env
    ```
-   Ajoutez les variables d'environnement nécessaires.
+   Ajoutez les variables d'environnement nécessaires :
+   ```
+   API_KEY=yOhKL6fIFb7VPc13AHMtCuqQD8Tf2Nkn0mc2a4F6fAc=
+   API_URL=https://bcreader-testnet.ibex.fi
+   # Token du bot Telegram
+   TELEGRAM_BOT_TOKEN=7504795839:AAFHvRE6Nvi422IF6ulCFLsVJ0TypbrOnMo
+   # ID du groupe Telegram "NewSafeCreated"
+   TELEGRAM_CHAT_ID=-1002827453878
+   ```
 
 5. Démarrez l'application avec Docker Compose :
    ```
@@ -79,15 +85,15 @@ Cette application permet de récupérer des données depuis l'API BCReader Testn
    tar -czf newsafebot_src.tar.gz --exclude="venv" --exclude="__pycache__" --exclude="*.tar" --exclude="*.tar.gz" .
    ```
 
-2. Transférez les fichiers vers l'EC2 :
+2. Transférez les fichiers vers le VPS :
    ```
-   ssh ec2-user@ec2-35-180-247-109.eu-west-3.compute.amazonaws.com "mkdir -p ~/newsafebot"
-   scp newsafebot_src.tar.gz ec2-user@ec2-35-180-247-109.eu-west-3.compute.amazonaws.com:~/newsafebot/
+   ssh debian@vps-7461372a.vps.ovh.net "mkdir -p ~/newsafebot"
+   scp newsafebot_src.tar.gz debian@vps-7461372a.vps.ovh.net:~/newsafebot/
    ```
 
-3. Connectez-vous à l'EC2 et déployez l'application :
+3. Connectez-vous au VPS et déployez l'application :
    ```
-   ssh ec2-user@ec2-35-180-247-109.eu-west-3.compute.amazonaws.com
+   ssh debian@vps-7461372a.vps.ovh.net
    cd ~/newsafebot
    tar -xzf newsafebot_src.tar.gz
    docker-compose up -d --build
@@ -95,9 +101,9 @@ Cette application permet de récupérer des données depuis l'API BCReader Testn
 
 ### Statut actuel
 
-L'application est actuellement déployée sur EC2 et accessible à l'adresse :
+L'application est actuellement déployée sur VPS OVH et accessible à l'adresse :
 
-http://ec2-35-180-247-109.eu-west-3.compute.amazonaws.com:8000
+http://vps-7461372a.vps.ovh.net:8000
 
 ## Utilisation
 
